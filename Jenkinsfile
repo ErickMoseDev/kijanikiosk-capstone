@@ -1,18 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// KijaniKiosk Capstone Pipeline
-//
-// Stages:  Setup → Lint → Test → Build → Build & Push Images → Security Audit
-//          → Deploy — Staging → Smoke Test → Archive & Publish
-//          → Approval Gate → Deploy — Production
-//
-// Required Jenkins credentials:
-//   dockerhub-credentials  (Username / Password — Docker Hub)
-//   nexus-credentials      (Username / Password — Nexus npm registry)
-//   kubeconfig             (Secret file — ~/.kube/config for the cluster)
-//
-// Required tools on the Jenkins host agent:
-//   docker  kubectl  curl
-// ─────────────────────────────────────────────────────────────────────────────
+
 pipeline {
     agent none
 
@@ -35,7 +21,7 @@ pipeline {
 
     stages {
 
-        // ── 1. Setup ────────────────────────────────────────────────────────
+        // ── 1. Setup
         stage('Setup') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -52,7 +38,7 @@ pipeline {
             }
         }
 
-        // ── 2. Lint ─────────────────────────────────────────────────────────
+        // ── 2. Lint 
         stage('Lint') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -63,7 +49,7 @@ pipeline {
             }
         }
 
-        // ── 3. Test ─────────────────────────────────────────────────────────
+        // ── 3. Test 
         stage('Test') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -79,7 +65,7 @@ pipeline {
             }
         }
 
-        // ── 4. Build dist/ ──────────────────────────────────────────────────
+        // ── 4. Build dist/ 
         stage('Build') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -98,7 +84,7 @@ pipeline {
             }
         }
 
-        // ── 5. Build & push Docker images ────────────────────────────────────
+        // ── 5. Build & push Docker images 
         //    Builds kk-payments and receipt-handler; pushes both to Docker Hub.
         //    Requires Docker CLI on the Jenkins host agent.
         stage('Build & Push Images') {
@@ -133,7 +119,7 @@ pipeline {
             }
         }
 
-        // ── 6. Security audit ───────────────────────────────────────────────
+        // ── 6. Security audit
         stage('Security Audit') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -151,7 +137,7 @@ npm audit --audit-level=high 2>&1 | tee audit-report.txt
             }
         }
 
-        // ── 7. Deploy to staging ────────────────────────────────────────────
+        // ── 7. Deploy to staging 
         //    Requires kubectl on the Jenkins host agent.
         stage('Deploy — Staging') {
             agent any
@@ -183,7 +169,7 @@ npm audit --audit-level=high 2>&1 | tee audit-report.txt
             }
         }
 
-        // ── 8. Smoke test ───────────────────────────────────────────────────
+        // ── 8. Smoke test 
         //    Requires curl on the Jenkins host agent.
         //    Fails the pipeline before the approval gate is offered.
         stage('Smoke Test') {
@@ -215,7 +201,7 @@ npm audit --audit-level=high 2>&1 | tee audit-report.txt
             }
         }
 
-        // ── 9. Archive build artifact + publish to Nexus npm registry ───────
+        // ── 9. Archive build artifact + publish to Nexus npm registry 
         stage('Archive & Publish') {
             agent { docker { image 'node:24'; args '--network shared-net' } }
             steps {
@@ -247,7 +233,7 @@ npm publish --tag build
             }
         }
 
-        // ── 10. Human approval gate ─────────────────────────────────────────
+        // ── 10. Human approval gate 
         //     Only reachable after the smoke test passes.
         stage('Approval Gate') {
             agent none
@@ -260,7 +246,7 @@ npm publish --tag build
             }
         }
 
-        // ── 11. Deploy to production ────────────────────────────────────────
+        // ── 11. Deploy to production
         stage('Deploy — Production') {
             agent any
             steps {

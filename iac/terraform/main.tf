@@ -14,7 +14,7 @@ provider "kubernetes" {
   config_context = var.kube_context != "" ? var.kube_context : null
 }
 
-# ── Staging namespace ────────────────────────────────────────────────────────
+#  Staging namespace
 resource "kubernetes_namespace" "kijani_staging" {
   metadata {
     name = var.staging_namespace

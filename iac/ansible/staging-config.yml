@@ -1,13 +1,5 @@
 ---
 # iac/ansible/staging-config.yml
-#
-# Applies environment-specific configuration to the kijani-staging namespace.
-# Run after `terraform apply` has created the namespace.
-#
-# Prerequisites:
-#   pip install kubernetes ansible-core
-#   ansible-galaxy collection install kubernetes.core
-#
 # Usage:
 #   ansible-playbook iac/ansible/staging-config.yml
 

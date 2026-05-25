@@ -20,31 +20,31 @@ echo "======================================================"
 echo " KijaniKiosk cluster bootstrap"
 echo "======================================================"
 
-# ── Create staging namespace (idempotent) ──────────────────────────────────
+# Create staging namespace (idempotent) 
 echo ""
 echo "--- Creating kijani-staging namespace ---"
 kubectl create namespace kijani-staging --dry-run=client -o yaml | kubectl apply -f -
 
-# ── Production: ConfigMap → Service → Deployment ───────────────────────────
+# Production: ConfigMap → Service → Deployment 
 echo ""
 echo "--- Bootstrapping production (default namespace) ---"
 kubectl apply -f "${K8S}/kk-payments-configmap-prod.yaml"
 kubectl apply -f "${K8S}/kk-payments-service-prod.yaml"
 kubectl apply -f "${K8S}/kk-payments-deployment.yaml" -n default
 
-# ── Staging: ConfigMap → Service → Deployment ──────────────────────────────
+# Staging: ConfigMap → Service → Deployment 
 echo ""
 echo "--- Bootstrapping staging (kijani-staging namespace) ---"
 kubectl apply -f "${K8S}/kk-payments-configmap-staging.yaml"
 kubectl apply -f "${K8S}/kk-payments-service-staging.yaml"
 kubectl apply -f "${K8S}/kk-payments-deployment.yaml" -n kijani-staging
 
-# ── Receipt handler (staging only) ─────────────────────────────────────────
+# Receipt handler (staging only) 
 echo ""
 echo "--- Deploying receipt-handler into kijani-staging ---"
 kubectl apply -f "${SERVERLESS}/k8s-manifest.yaml"
 
-# ── Observability (if monitoring namespace exists) ─────────────────────────
+# Observability (if monitoring namespace exists) 
 if kubectl get namespace monitoring &>/dev/null; then
     echo ""
     echo "--- Applying Prometheus alert rules ---"

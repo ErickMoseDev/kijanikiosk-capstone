@@ -1,13 +1,4 @@
 # observability/alert-rules.yaml
-#
-# Prometheus alerting rules for the kk-payments service.
-# Applies to both default (production) and kijani-staging namespaces.
-#
-# Requires: kube-prometheus-stack (or Prometheus Operator) installed in the cluster.
-# Apply:    kubectl apply -f observability/alert-rules.yaml -n monitoring
-#
-# The `release: kube-prometheus-stack` label must match the Prometheus Operator's
-# ruleSelector to ensure these rules are picked up automatically.
 
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule

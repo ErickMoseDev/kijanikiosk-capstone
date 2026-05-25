@@ -15,8 +15,6 @@ A CI/CD capstone (Track A: Infrastructure-First) built around the **kijanikiosk-
 9. [Local Development](#local-development)
 10. [Project Structure](#project-structure)
 
----
-
 ## Handover Guide
 
 Follow these steps in order on a clean machine. Each section below has the full details.
@@ -119,8 +117,6 @@ See [Create the Pipeline Job](#7-create-the-pipeline-job). Click **Build Now** o
 
 Get the minikube IP with `minikube ip`.
 
----
-
 ## Project Overview
 
 | Component            | Technology                                                      |
@@ -134,10 +130,8 @@ Get the minikube IP with `minikube ip`.
 | Staging namespace    | `kijani-staging` (Terraform-managed)                            |
 | Production namespace | `default`                                                       |
 | IaC                  | Terraform + Ansible                                             |
-| Observability        | Prometheus + Grafana                                            |
+| Observability        | Prometheus                                                      |
 | Receipt chain        | Serverless Framework (serverless-offline + serverless-s3-local) |
-
----
 
 ## Prerequisites
 
@@ -150,8 +144,6 @@ Get the minikube IP with `minikube ip`.
 | Terraform     | 1.7+            | https://developer.hashicorp.com/terraform/install |
 | Ansible       | 2.15+           | `pip install ansible-core kubernetes`             |
 | curl          | any             | Usually pre-installed on Linux/macOS              |
-
----
 
 ## Container Setup
 
@@ -280,8 +272,6 @@ kubectl config view --minify --flatten > /tmp/jenkins-kubeconfig
 4. Script path: `Jenkinsfile`
 5. Save and click **Build Now**.
 
----
-
 ## Infrastructure Setup
 
 Run Terraform and Ansible once before the first pipeline execution.
@@ -308,8 +298,6 @@ ansible-playbook iac/ansible/staging-config.yml
 
 This applies the staging ConfigMap, Service, ResourceQuota, and LimitRange to `kijani-staging`.
 
----
-
 ## Bootstrap the Cluster
 
 After Terraform and Ansible, run the bootstrap script once to apply all remaining manifests:
@@ -324,8 +312,6 @@ The script is idempotent - safe to re-run. Verify the deployments:
 kubectl get pods -n default
 kubectl get pods -n kijani-staging
 ```
-
----
 
 ## Pipeline Stages
 
@@ -342,8 +328,6 @@ kubectl get pods -n kijani-staging
 | 9   | Archive and Publish   | `node:24` | Archives `dist/` in Jenkins. Publishes the versioned package to Nexus.                                                                                           |
 | 10  | Approval Gate         | none      | A human must approve before production is touched. This step is only reachable after the smoke test passes.                                                      |
 | 11  | Deploy to Production  | host      | Same `kubectl apply` + `set image` + rollout wait, targeting the `default` namespace.                                                                            |
-
----
 
 ## Receipt Handler
 
@@ -474,11 +458,9 @@ kijanikiosk-capstone/
 │   └── kk-payments-service-staging.yaml         # NodePort :30001
 ├── observability/
 │   └── alert-rules.yaml                         # 3 Prometheus alert rules
-├── screenshots/                                 # Evidence - replace placeholders after runs
-│   ├── pipeline-run-pass.txt
-│   ├── pipeline-run-fail-smoke.txt
-│   ├── alert-firing.txt
-│   └── receipt-chain-log.txt
+├── screenshots/
+│   ├── pipeline-run-pass.png
+│   └── receipt-chain-log.png
 ├── scripts/
 │   └── bootstrap.sh                             # One-time cluster bootstrap
 └── serverless/
