@@ -1,0 +1,78 @@
+# Shared Deployment manifest — applied to both staging and production.
+# Namespace is NOT set here; supply it with:  kubectl apply -f this-file -n <namespace>
+# The pipeline updates the image via:   kubectl set image deployment/kk-payments ...
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: kk-payments
+    labels:
+        app: kk-payments
+spec:
+    replicas: 2
+    selector:
+        matchLabels:
+            app: kk-payments
+    strategy:
+        type: RollingUpdate
+        rollingUpdate:
+            maxUnavailable: 1
+            maxSurge: 1
+    template:
+        metadata:
+            labels:
+                app: kk-payments
+        spec:
+            containers:
+                - name: kk-payments
+                  # Image is overridden by the pipeline via `kubectl set image`
+                  image: erickmosedev/kk-payments:latest
+                  ports:
+                      - containerPort: 3000
+                  env:
+                      - name: NODE_ENV
+                        valueFrom:
+                            configMapKeyRef:
+                                name: kk-payments-config
+                                key: NODE_ENV
+                      - name: DB_HOST
+                        valueFrom:
+                            configMapKeyRef:
+                                name: kk-payments-config
+                                key: DB_HOST
+                      - name: BUCKET_NAME
+                        valueFrom:
+                            configMapKeyRef:
+                                name: kk-payments-config
+                                key: BUCKET_NAME
+                      - name: RECEIPT_ENDPOINT
+                        valueFrom:
+                            configMapKeyRef:
+                                name: kk-payments-config
+                                key: RECEIPT_ENDPOINT
+                                optional: true
+                      - name: PORT
+                        valueFrom:
+                            configMapKeyRef:
+                                name: kk-payments-config
+                                key: PORT
+                  readinessProbe:
+                      httpGet:
+                          path: /health
+                          port: 3000
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                      failureThreshold: 3
+                  livenessProbe:
+                      httpGet:
+                          path: /health
+                          port: 3000
+                      initialDelaySeconds: 15
+                      periodSeconds: 20
+                      failureThreshold: 3
+                  resources:
+                      requests:
+                          cpu: '100m'
+                          memory: '128Mi'
+                      limits:
+                          cpu: '250m'
+                          memory: '256Mi'
