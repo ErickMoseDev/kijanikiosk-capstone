@@ -17,4 +17,19 @@ export default [
 			quotes: ['error', 'double'],
 		},
 	},
+	{
+		files: ['test/**/*.js'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+				...globals.jest,
+			},
+		},
+		rules: {
+			'no-unused-vars': 'warn',
+			'no-console': 'off',
+			semi: ['error', 'always'],
+			quotes: ['error', 'double'],
+		},
+	},
 ];
