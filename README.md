@@ -1,42 +1,150 @@
-# Kijani Kiosk — Capstone Project
+# KijaniKiosk Capstone
 
-A CI/CD capstone project built around the **kijanikiosk-payment** Node.js app. The pipeline runs in Jenkins, publishes build artifacts to a Nexus npm registry, and both services communicate over a shared Docker network.
+A CI/CD capstone (Track A: Infrastructure-First) built around the **kijanikiosk-payment** Node.js microservice. The pipeline runs in Jenkins, deploys to a staging Kubernetes namespace, runs a smoke test, waits for human approval, then deploys to production. Staging is provisioned by Terraform and configured by Ansible. A serverless receipt handler demonstrates an event-driven S3 trigger chain.
 
 ## Table of Contents
 
-1. [Project Overview](#project-overview)
-2. [Prerequisites](#prerequisites)
-3. [Container Setup](#container-setup)
-    - [1. Create the shared Docker network](#1-create-the-shared-docker-network)
-    - [2. Start Nexus](#2-start-nexus)
-    - [3. Configure Nexus](#3-configure-nexus)
-    - [4. Start Jenkins](#4-start-jenkins)
-    - [5. Configure Jenkins](#5-configure-jenkins)
-4. [Pipeline Stages](#pipeline-stages)
-5. [Local Development](#local-development)
-6. [Project Structure](#project-structure)
+1. [Handover Guide](#handover-guide)
+2. [Project Overview](#project-overview)
+3. [Prerequisites](#prerequisites)
+4. [Container Setup](#container-setup)
+5. [Infrastructure Setup](#infrastructure-setup)
+6. [Bootstrap the Cluster](#bootstrap-the-cluster)
+7. [Pipeline Stages](#pipeline-stages)
+8. [Receipt Handler](#receipt-handler)
+9. [Local Development](#local-development)
+10. [Project Structure](#project-structure)
+
+---
+
+## Handover Guide
+
+Follow these steps in order on a clean machine. Each section below has the full details.
+
+**Step 1 - Install host tools**
+
+Docker Engine 24+, kubectl 1.29+, minikube 1.32+, Node.js 20+, Terraform 1.7+, Ansible 2.15+, and curl. See [Prerequisites](#prerequisites).
+
+**Step 2 - Start minikube**
+
+```bash
+minikube start --driver=docker
+```
+
+**Step 3 - Create the shared Docker network**
+
+```bash
+docker network create shared-net
+```
+
+**Step 4 - Start and configure Nexus**
+
+See [Container Setup: Start Nexus](#2-start-nexus) and [Configure Nexus](#3-configure-nexus).
+
+**Step 5 - Start Jenkins**
+
+See [Container Setup: Start Jenkins](#4-start-jenkins).
+
+**Step 6 - Install kubectl inside the Jenkins container**
+
+The deploy and smoke-test stages run inside the Jenkins container, so kubectl must be present there:
+
+```bash
+JENKINS_ID=$(docker inspect --format='{{.Id}}' jenkins)
+docker exec -u root "$JENKINS_ID" bash -c "
+  curl -LO https://dl.k8s.io/release/\$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+  install -m 0755 kubectl /usr/local/bin/kubectl
+  rm kubectl"
+```
+
+Verify:
+
+```bash
+docker exec jenkins kubectl version --client
+```
+
+**Step 7 - Add Jenkins credentials**
+
+See [Configure Jenkins Credentials](#6-configure-jenkins-credentials). You need three credentials: `nexus-credentials`, `dockerhub-credentials`, and `kubeconfig`.
+
+**Step 8 - Provision staging with Terraform**
+
+```bash
+cd iac/terraform
+terraform init
+terraform apply
+```
+
+**Step 9 - Configure staging with Ansible**
+
+```bash
+pip install ansible-core kubernetes
+ansible-galaxy collection install kubernetes.core
+ansible-playbook iac/ansible/staging-config.yml
+```
+
+**Step 10 - Bootstrap the cluster**
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+**Step 11 - Create the Jenkins pipeline job and run it**
+
+See [Create the Pipeline Job](#7-create-the-pipeline-job). Click **Build Now** once the job is created.
+
+**Ports at a glance**
+
+| Service                  | URL                               |
+| ------------------------ | --------------------------------- |
+| Jenkins                  | http://localhost:8080             |
+| Nexus                    | http://localhost:8081             |
+| kk-payments (production) | http://\<minikube-ip\>:30000      |
+| kk-payments (staging)    | http://\<minikube-ip\>:30001      |
+| Receipt handler HTTP API | http://localhost:3000 (local dev) |
+| Receipt handler local S3 | http://localhost:4569 (local dev) |
+
+Get the minikube IP with `minikube ip`.
+
+---
 
 ## Project Overview
 
-| Component         | Technology                   |
-| ----------------- | ---------------------------- |
-| Application       | Node.js 24 / Express         |
-| CI server         | Jenkins (Docker)             |
-| Artifact registry | Sonatype Nexus 3 (Docker)    |
-| Container network | `shared-net` (Docker bridge) |
-| npm registry path | `capstone-kijanikiosk/`      |
+| Component            | Technology                                                      |
+| -------------------- | --------------------------------------------------------------- |
+| Application          | Node.js 24 / Express                                            |
+| CI server            | Jenkins (Docker)                                                |
+| Container registry   | Docker Hub                                                      |
+| Artifact registry    | Sonatype Nexus 3 (npm)                                          |
+| Container network    | `shared-net` (Docker bridge)                                    |
+| Kubernetes cluster   | minikube (single-node, Docker driver)                           |
+| Staging namespace    | `kijani-staging` (Terraform-managed)                            |
+| Production namespace | `default`                                                       |
+| IaC                  | Terraform + Ansible                                             |
+| Observability        | Prometheus + Grafana                                            |
+| Receipt chain        | Serverless Framework (serverless-offline + serverless-s3-local) |
+
+---
 
 ## Prerequisites
 
-- Docker Engine 24+
-- Docker Compose (optional, for convenience)
-- Git
+| Tool          | Minimum version | Notes                                             |
+| ------------- | --------------- | ------------------------------------------------- |
+| Docker Engine | 24+             | https://docs.docker.com/engine/install/           |
+| kubectl       | 1.29+           | https://kubernetes.io/docs/tasks/tools/           |
+| minikube      | 1.32+           | https://minikube.sigs.k8s.io/docs/start/          |
+| Node.js       | 20+             | https://nodejs.org/                               |
+| Terraform     | 1.7+            | https://developer.hashicorp.com/terraform/install |
+| Ansible       | 2.15+           | `pip install ansible-core kubernetes`             |
+| curl          | any             | Usually pre-installed on Linux/macOS              |
+
+---
 
 ## Container Setup
 
 ### 1. Create the shared Docker network
 
-Jenkins and Nexus must be on the same Docker network so the pipeline can resolve the `nexus` hostname.
+Jenkins and Nexus must share a Docker network so the pipeline can resolve the `nexus` hostname.
 
 ```bash
 docker network create shared-net
@@ -53,25 +161,25 @@ docker run -d \
   sonatype/nexus3:latest
 ```
 
-Wait ~2 minutes for Nexus to finish starting, then verify it is up:
+Wait about 2 minutes, then confirm Nexus is ready:
 
 ```bash
-docker logs -f nexus   # look for "Started Sonatype Nexus"
+docker logs -f nexus   # look for: Started Sonatype Nexus
 ```
 
 ### 3. Configure Nexus
 
 1. Open **http://localhost:8081** in your browser.
-2. Sign in. The initial admin password is inside the container:
+2. Sign in. Get the initial admin password:
     ```bash
     docker exec nexus cat /nexus-data/admin.password
     ```
-3. Follow the setup wizard and set a permanent admin password.
+3. Complete the setup wizard and set a permanent admin password.
 4. Create an **npm (hosted)** repository:
     - **Name:** `capstone-kijanikiosk`
     - **Deployment policy:** Allow redeploy
-5. Enable the **npm Bearer Token realm** so `npm publish` can authenticate:
-    - Go to **Security → Realms** and activate _npm Bearer Token Realm_.
+5. Enable the npm Bearer Token realm:
+    - Go to **Security > Realms** and activate **npm Bearer Token Realm**.
 
 ### 4. Start Jenkins
 
@@ -86,88 +194,262 @@ docker run -d \
   jenkins/jenkins:lts
 ```
 
-> **Why mount the Docker socket?** The Jenkinsfile uses a `docker` agent (`node:24`). Jenkins needs access to the host Docker daemon to spin up that container during the build.
+The Docker socket is mounted so Jenkins can build and push container images from within the container.
 
-Retrieve the initial admin password:
+Get the initial admin password:
 
 ```bash
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Open **http://localhost:8080**, unlock Jenkins, and install the suggested plugins (ensure the **Docker Pipeline** plugin is included).
+Open **http://localhost:8080**, unlock Jenkins, and install suggested plugins. Make sure the **Docker Pipeline** plugin is included.
 
-### 5. Configure Jenkins
+### 5. Install kubectl inside Jenkins
 
-#### Add Nexus credentials
+See Step 6 in the [Handover Guide](#handover-guide) above for the install command. This is required before any pipeline run.
 
-The pipeline looks for a credential with ID **`nexus-credentials`**.
+### 6. Configure Jenkins credentials
 
-1. Go to **Manage Jenkins → Credentials → (global) → Add Credentials**.
-2. Kind: **Username with password**
-3. Username: your Nexus admin username
-4. Password: your Nexus admin password
-5. **ID:** `nexus-credentials`
+Go to **Manage Jenkins > Credentials > (global) > Add Credentials** for each entry below.
 
-#### Create the pipeline job
+**Nexus**
 
-1. **New Item → Pipeline**
-2. Under _Pipeline_, set _Definition_ to **Pipeline script from SCM**.
-3. SCM: Git — point it at this repository.
+- Kind: Username with password
+- Username: your Nexus admin username
+- Password: your Nexus admin password
+- ID: `nexus-credentials`
+
+**Docker Hub**
+
+- Kind: Username with password
+- Username: your Docker Hub username
+- Password: your Docker Hub access token (not your account password)
+- ID: `dockerhub-credentials`
+
+**kubeconfig**
+
+- Kind: Secret file
+- File: upload `~/.kube/config`
+- ID: `kubeconfig`
+
+### 7. Create the pipeline job
+
+1. **New Item > Pipeline**
+2. Under **Pipeline**, set **Definition** to **Pipeline script from SCM**.
+3. SCM: Git - point it at this repository.
 4. Script path: `Jenkinsfile`
-5. Save and run **Build Now**.
+5. Save and click **Build Now**.
+
+---
+
+## Infrastructure Setup
+
+Run Terraform and Ansible once before the first pipeline execution.
+
+### Provision the staging namespace
+
+```bash
+cd iac/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+This creates the `kijani-staging` namespace with `managed-by: terraform` labels. The default context is `minikube`.
+
+### Configure the staging namespace
+
+```bash
+pip install ansible-core kubernetes
+ansible-galaxy collection install kubernetes.core
+
+ansible-playbook iac/ansible/staging-config.yml
+```
+
+This applies the staging ConfigMap, Service, ResourceQuota, and LimitRange to `kijani-staging`.
+
+---
+
+## Bootstrap the Cluster
+
+After Terraform and Ansible, run the bootstrap script once to apply all remaining manifests:
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+The script is idempotent - safe to re-run. Verify the deployments:
+
+```bash
+kubectl get pods -n default
+kubectl get pods -n kijani-staging
+```
+
+---
 
 ## Pipeline Stages
 
-| Stage                       | What it does                                                                                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Setup**                   | Detects `package.json` location, reads the semver version, and appends the short Git SHA to create a unique `ARTIFACT_VERSION`.                               |
-| **Lint**                    | Runs `npm ci` then `npm run lint` (ESLint) inside the `node:24` container.                                                                                    |
-| **Build**                   | Runs `npm run build`, which copies `src/` and `package.json` into a `dist/` directory, then stashes the output.                                               |
-| **Verify → Test**           | Runs `npm test` (Jest with coverage) and publishes JUnit XML results.                                                                                         |
-| **Verify → Security Audit** | Runs `npm audit --audit-level=high` and archives the report. Both Verify stages run in parallel.                                                              |
-| **Archive**                 | Archives the `dist/` directory as a Jenkins build artifact (fingerprinted).                                                                                   |
-| **Publish**                 | Writes a temporary `.npmrc` pointing at the Nexus `capstone-kijanikiosk` repository, bumps the package version to `ARTIFACT_VERSION`, and runs `npm publish`. |
+| #   | Stage                | Agent     | What it does                                                                                                                                                     |
+| --- | -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Setup                | `node:24` | Reads version from `package.json`, appends short Git SHA to form `IMAGE_TAG`.                                                                                    |
+| 2   | Lint                 | `node:24` | `npm ci` + `npm run lint` (ESLint).                                                                                                                              |
+| 3   | Test                 | `node:24` | `npm test` (Jest). Publishes JUnit results.                                                                                                                      |
+| 4   | Build                | `node:24` | `npm run build` to `dist/`. Stashes build output.                                                                                                                |
+| 5   | Build and Push Image | host      | `docker build` with `Dockerfile.production`, pushes `erickmosedev/kk-payments:<IMAGE_TAG>` and `:latest` to Docker Hub.                                          |
+| 6   | Security Audit       | `node:24` | `npm audit --audit-level=high`. Archives the report.                                                                                                             |
+| 7   | Deploy to Staging    | host      | `kubectl apply` ConfigMap + Service + Deployment, then `kubectl set image` + rollout wait.                                                                       |
+| 8   | Smoke Test           | host      | Hits `GET /health` and `POST /payments` on the staging NodePort. Pipeline stops here if either check fails. No approval prompt is shown if the smoke test fails. |
+| 9   | Archive and Publish  | `node:24` | Archives `dist/` in Jenkins. Publishes the versioned package to Nexus.                                                                                           |
+| 10  | Approval Gate        | none      | A human must approve before production is touched. This step is only reachable after the smoke test passes.                                                      |
+| 11  | Deploy to Production | host      | Same `kubectl apply` + `set image` + rollout wait, targeting the `default` namespace.                                                                            |
+
+---
+
+## Receipt Handler
+
+When `kk-payments` creates a payment in staging, it POSTs a receipt payload to `RECEIPT_ENDPOINT` (set in the staging ConfigMap). The receipt handler writes `receipt-{paymentId}.json` to the `kk-payments-receipts` S3 bucket. That upload triggers the `processReceiptUpload` function via the S3 ObjectCreated event.
+
+### Run locally
+
+```bash
+cd serverless/receipt-handler
+npm install
+mkdir -p /tmp/kijani-s3-local
+npx sls offline start
+```
+
+Wait for both of these messages before uploading anything:
+
+```
+S3 local server ready
+POST | http://localhost:3000/dev/receipts
+```
+
+### Fire the S3 trigger
+
+**Option A - Node.js upload script (no aws CLI needed)**
+
+```bash
+node upload-test.js
+```
+
+**Option B - aws CLI**
+
+```bash
+aws --endpoint-url http://localhost:4569 \
+  s3 mb s3://kk-payments-receipts --region af-south-1
+
+echo '{"orderId":"ORD-001","amount":2500,"currency":"KES"}' > /tmp/receipt-ORD-001.json
+
+aws --endpoint-url http://localhost:4569 \
+  s3 cp /tmp/receipt-ORD-001.json \
+  s3://kk-payments-receipts/receipt-ORD-001.json --region af-south-1
+```
+
+**Option C - direct invoke (bypasses S3 entirely)**
+
+```bash
+npx sls invoke local --function processReceiptUpload --data '{
+  "Records": [{
+    "eventName": "ObjectCreated:Put",
+    "eventTime": "2024-11-01T08:32:14.000Z",
+    "s3": {
+      "bucket": { "name": "kk-payments-receipts" },
+      "object": { "key": "receipt-ORD-001.json", "size": 284 }
+    }
+  }]
+}'
+```
+
+Expected output in Terminal 1:
+
+```
+{"event":"receipt_processed","bucketName":"kk-payments-receipts","objectKey":"receipt-ORD-001.json","objectSize":284,"orderId":"ORD-001","processedAt":"...","handler":"processReceiptUpload"}
+[kk-receipts] Processing upload: bucket=kk-payments-receipts key=receipt-ORD-001.json size=284b
+```
+
+### Verify multi-record iteration
+
+Pass two records to confirm both produce log lines:
+
+```bash
+npx sls invoke local --function processReceiptUpload --data '{"Records":[{"eventName":"ObjectCreated:Put","eventTime":"2024-11-01T08:00:00.000Z","s3":{"bucket":{"name":"kk-payments-receipts"},"object":{"key":"receipt-ORD-001.json","size":284}}},{"eventName":"ObjectCreated:Put","eventTime":"2024-11-01T08:00:01.000Z","s3":{"bucket":{"name":"kk-payments-receipts"},"object":{"key":"receipt-ORD-002.json","size":291}}}]}'
+```
+
+Two distinct log lines should appear. If only one appears, the handler is not iterating correctly.
+
+### Deploy to the staging cluster
+
+```bash
+docker build -t erickmosedev/receipt-handler:latest serverless/receipt-handler/
+docker push erickmosedev/receipt-handler:latest
+kubectl apply -f serverless/receipt-handler/k8s-manifest.yaml
+kubectl get pods -n kijani-staging -l app=receipt-handler
+```
+
+---
 
 ## Local Development
 
 ```bash
 cd app/kijanikiosk-payment
 
-# Install dependencies
-npm install
-
-# Start the dev server (hot-reload via nodemon)
-npm run dev
-
-# Run tests
-npm test
-
-# Lint
-npm run lint
-
-# Build dist/
-npm run build
+npm install        # install dependencies
+npm run dev        # start dev server with hot reload on port 3000
+npm test           # run Jest tests
+npm run lint       # ESLint
+npm run build      # output to dist/
 ```
 
-The server listens on **port 3000** by default. The health endpoint is available at `GET /health`.
+Health endpoint: `GET http://localhost:3000/health`
+
+---
 
 ## Project Structure
 
 ```
 kijanikiosk-capstone/
-├── Jenkinsfile                        # CI/CD pipeline definition
+├── Jenkinsfile                                  # 11-stage CI/CD pipeline
+├── README.md
 ├── app/
 │   └── kijanikiosk-payment/
+│       ├── Dockerfile.production                # Multi-stage production image
+│       ├── package.json
 │       ├── src/
-│       │   ├── app.js                 # Express app (routes)
-│       │   └── server.js              # HTTP server entry point
-│       ├── test/
-│       │   └── payment.test.js
-│       ├── Dockerfile.production      # Multi-stage production image
-│       └── package.json
+│       │   ├── app.js                           # Express routes + writeReceipt()
+│       │   └── server.js                        # HTTP server entry point
+│       └── test/
+│           └── payment.test.js
 ├── docs/
-├── k8s/                               # Kubernetes manifests (coming soon)
-├── observability/                     # Monitoring/logging configs (coming soon)
-├── scripts/                           # Utility scripts (coming soon)
-└── serverless/                        # Serverless function configs (coming soon)
+│   └── project-scope.md
+├── iac/
+│   ├── terraform/
+│   │   ├── main.tf                              # Provisions kijani-staging namespace
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   └── ansible/
+│       └── staging-config.yml                   # ConfigMap, quota, LimitRange
+├── k8s/
+│   ├── kk-payments-deployment.yaml              # Shared manifest (no namespace set)
+│   ├── kk-payments-configmap-prod.yaml          # Production config values
+│   ├── kk-payments-configmap-staging.yaml       # Staging config + RECEIPT_ENDPOINT
+│   ├── kk-payments-service-prod.yaml            # NodePort :30000
+│   └── kk-payments-service-staging.yaml         # NodePort :30001
+├── observability/
+│   └── alert-rules.yaml                         # 3 Prometheus alert rules
+├── screenshots/                                 # Evidence - replace placeholders after runs
+│   ├── pipeline-run-pass.txt
+│   ├── pipeline-run-fail-smoke.txt
+│   ├── alert-firing.txt
+│   └── receipt-chain-log.txt
+├── scripts/
+│   └── bootstrap.sh                             # One-time cluster bootstrap
+└── serverless/
+    └── receipt-handler/
+        ├── serverless.yml                       # 3 functions: health, generateReceipt, processReceiptUpload
+        ├── handler.js                           # Lambda-style handlers
+        ├── upload-test.js                       # Trigger the S3 event without the aws CLI
+        ├── package.json
+        ├── Dockerfile                           # Runs sls offline start
+        └── k8s-manifest.yaml                   # Deployment + Service in kijani-staging
 ```
