@@ -1,4 +1,5 @@
 const express = require("express");
+const http = require("http");
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
@@ -6,6 +7,44 @@ app.use(express.json());
 
 // In-memory store for demo purposes
 const payments = {};
+
+// Writes a receipt to RECEIPT_ENDPOINT when configured (staging environment).
+// Uses Node's built-in http module — no extra dependencies required.
+function writeReceipt(payment) {
+	const endpoint = process.env.RECEIPT_ENDPOINT;
+	if (!endpoint) return;
+	try {
+		const url = new URL(endpoint);
+		const body = JSON.stringify({
+			paymentId: payment.id,
+			amount: payment.amount,
+			currency: payment.currency,
+			method: payment.method,
+			bucket: process.env.BUCKET_NAME || "kk-payments-receipts-staging",
+			timestamp: payment.createdAt,
+		});
+		const req = http.request(
+			{
+				hostname: url.hostname,
+				port: url.port || 80,
+				path: url.pathname || "/",
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"Content-Length": Buffer.byteLength(body),
+				},
+			},
+			(res) => console.log(`receipt-chain: ${res.statusCode}`),
+		);
+		req.on("error", (e) =>
+			console.error(`receipt-chain error: ${e.message}`),
+		);
+		req.write(body);
+		req.end();
+	} catch (e) {
+		console.error(`writeReceipt: ${e.message}`);
+	}
+}
 
 // POST /payments - initiate a payment
 app.post("/payments", (req, res) => {
@@ -33,6 +72,7 @@ app.post("/payments", (req, res) => {
 	};
 
 	payments[payment.id] = payment;
+	writeReceipt(payment);
 	return res.status(201).json(payment);
 });
 

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: kk-payments-config
+    namespace: kijani-staging
+    labels:
+        app: kk-payments
+        environment: staging
+data:
+    NODE_ENV: 'staging'
+    DB_HOST: 'staging-db.internal'
+    BUCKET_NAME: 'kk-payments-receipts-staging'
+    # RECEIPT_ENDPOINT points to the receipt-handler service in the same namespace.
+    # The handler logs each event and confirms the receipt chain.
+    RECEIPT_ENDPOINT: 'http://receipt-handler.kijani-staging.svc.cluster.local:3000/receipts'
+    PORT: '3000'
