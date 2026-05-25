@@ -177,7 +177,7 @@ npm audit --audit-level=high 2>&1 | tee audit-report.txt
                     kubectl set image deployment/receipt-handler \
                       receipt-handler=${RECEIPT_HANDLER_REPO}:latest -n ${STAGING_NS}
                     kubectl rollout status deployment/receipt-handler \
-                      -n ${STAGING_NS} --timeout=120s
+                      -n ${STAGING_NS} --timeout=300s
                     '''
                 }
             }

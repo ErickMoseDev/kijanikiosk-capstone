@@ -18,6 +18,7 @@ spec:
             labels:
                 app: receipt-handler
         spec:
+            terminationGracePeriodSeconds: 10
             containers:
                 - name: receipt-handler
                   image: erickmosedev/receipt-handler:latest
