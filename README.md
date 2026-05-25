@@ -45,29 +45,42 @@ See [Container Setup: Start Nexus](#2-start-nexus) and [Configure Nexus](#3-conf
 
 See [Container Setup: Start Jenkins](#4-start-jenkins).
 
-**Step 6 - Install kubectl inside the Jenkins container**
+**Step 6 - Prepare Jenkins to talk to minikube**
 
-The deploy and smoke-test stages run inside the Jenkins container, so kubectl must be present there:
+Install kubectl inside the Jenkins container and connect it to the minikube Docker network. Both are required for the deploy and smoke-test stages.
 
 ```bash
+# Install kubectl inside the container
 JENKINS_ID=$(docker inspect --format='{{.Id}}' jenkins)
 docker exec -u root "$JENKINS_ID" bash -c "
   curl -LO https://dl.k8s.io/release/\$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
   install -m 0755 kubectl /usr/local/bin/kubectl
   rm kubectl"
+
+# Connect Jenkins to the minikube Docker network so it can reach the API server
+docker network connect minikube jenkins
 ```
 
-Verify:
+Verify both:
 
 ```bash
 docker exec jenkins kubectl version --client
+docker exec jenkins curl -sk https://192.168.49.2:8443 | head -c 100
 ```
 
-**Step 7 - Add Jenkins credentials**
+**Step 7 - Generate a flattened kubeconfig**
 
-See [Configure Jenkins Credentials](#6-configure-jenkins-credentials). You need three credentials: `nexus-credentials`, `dockerhub-credentials`, and `kubeconfig`.
+The default `~/.kube/config` references certificate files on your host by path. Those paths do not exist inside the Jenkins container. Generate a self-contained version with all certificates embedded:
 
-**Step 8 - Provision staging with Terraform**
+```bash
+kubectl config view --minify --flatten > /tmp/jenkins-kubeconfig
+```
+
+**Step 8 - Add Jenkins credentials**
+
+See [Configure Jenkins Credentials](#6-configure-jenkins-credentials). You need three credentials: `nexus-credentials`, `dockerhub-credentials`, and `kubeconfig`. Use `/tmp/jenkins-kubeconfig` for the kubeconfig secret file.
+
+**Step 9 - Provision staging with Terraform**
 
 ```bash
 cd iac/terraform
@@ -75,7 +88,7 @@ terraform init
 terraform apply
 ```
 
-**Step 9 - Configure staging with Ansible**
+**Step 10 - Configure staging with Ansible**
 
 ```bash
 pip install ansible-core kubernetes
@@ -83,13 +96,13 @@ ansible-galaxy collection install kubernetes.core
 ansible-playbook iac/ansible/staging-config.yml
 ```
 
-**Step 10 - Bootstrap the cluster**
+**Step 11 - Bootstrap the cluster**
 
 ```bash
 bash scripts/bootstrap.sh
 ```
 
-**Step 11 - Create the Jenkins pipeline job and run it**
+**Step 12 - Create the Jenkins pipeline job and run it**
 
 See [Create the Pipeline Job](#7-create-the-pipeline-job). Click **Build Now** once the job is created.
 
@@ -204,9 +217,30 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 
 Open **http://localhost:8080**, unlock Jenkins, and install suggested plugins. Make sure the **Docker Pipeline** plugin is included.
 
-### 5. Install kubectl inside Jenkins
+### 5. Install kubectl and connect to minikube
 
-See Step 6 in the [Handover Guide](#handover-guide) above for the install command. This is required before any pipeline run.
+Install kubectl inside the Jenkins container and connect it to the minikube Docker network. Minikube uses the Docker driver on Linux, so its API server runs inside a Docker container on the `minikube` network. Without this network connection Jenkins cannot reach the cluster even with a valid kubeconfig.
+
+```bash
+# Install kubectl
+JENKINS_ID=$(docker inspect --format='{{.Id}}' jenkins)
+docker exec -u root "$JENKINS_ID" bash -c "
+  curl -LO https://dl.k8s.io/release/\$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+  install -m 0755 kubectl /usr/local/bin/kubectl
+  rm kubectl"
+
+# Connect Jenkins to the minikube Docker network
+docker network connect minikube jenkins
+```
+
+Verify:
+
+```bash
+docker exec jenkins kubectl version --client
+docker exec jenkins curl -sk https://192.168.49.2:8443 | head -c 100
+```
+
+Note: `docker network connect` does not persist across container restarts. Re-run it if you recreate the Jenkins container.
 
 ### 6. Configure Jenkins credentials
 
@@ -228,8 +262,14 @@ Go to **Manage Jenkins > Credentials > (global) > Add Credentials** for each ent
 
 **kubeconfig**
 
+The default `~/.kube/config` stores certificate paths that only exist on your host. Jenkins runs in a container and cannot read those paths. Generate a self-contained kubeconfig with all certificates embedded before uploading:
+
+```bash
+kubectl config view --minify --flatten > /tmp/jenkins-kubeconfig
+```
+
 - Kind: Secret file
-- File: upload `~/.kube/config`
+- File: upload `/tmp/jenkins-kubeconfig`
 - ID: `kubeconfig`
 
 ### 7. Create the pipeline job
