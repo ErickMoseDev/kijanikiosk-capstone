@@ -47,5 +47,6 @@ custom:
         port: 4569 # local S3 server port
         directory: /tmp/kijani-s3-local # where uploaded files are stored locally
     serverless-offline:
+        host: 0.0.0.0
         httpPort: 3000
         lambdaPort: 3002

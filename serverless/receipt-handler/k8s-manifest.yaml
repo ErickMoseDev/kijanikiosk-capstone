@@ -29,15 +29,16 @@ spec:
                       httpGet:
                           path: /health
                           port: 3000
-                      initialDelaySeconds: 5
+                      initialDelaySeconds: 30
                       periodSeconds: 10
+                      failureThreshold: 6
                   resources:
                       requests:
-                          cpu: '50m'
-                          memory: '64Mi'
-                      limits:
                           cpu: '100m'
-                          memory: '128Mi'
+                          memory: '192Mi'
+                      limits:
+                          cpu: '200m'
+                          memory: '384Mi'
 ---
 apiVersion: v1
 kind: Service
