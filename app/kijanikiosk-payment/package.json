@@ -1,0 +1,24 @@
+{
+	"name": "kijanikiosk-payment",
+	"version": "1.0.0",
+	"description": "Kijani Kiosk Payment Service",
+	"main": "src/app.js",
+	"scripts": {
+		"start": "node src/server.js",
+		"dev": "nodemon src/server.js",
+		"test": "jest --coverage",
+		"lint": "eslint src/",
+		"build": "rm -rf dist && mkdir -p dist && cp -r src dist/src && cp package.json dist/package.json"
+	},
+	"dependencies": {
+		"express": "^4.18.2",
+		"uuid": "^9.0.0"
+	},
+	"devDependencies": {
+		"@eslint/js": "^9.0.0",
+		"eslint": "^9.0.0",
+		"jest": "^29.7.0",
+		"supertest": "^6.3.4",
+		"nodemon": "^3.0.3"
+	}
+}

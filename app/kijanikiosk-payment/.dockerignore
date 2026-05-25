@@ -1,0 +1,7 @@
+node_modules/
+.git/
+*.test.js
+.env
+coverage/
+dist/
+README.md

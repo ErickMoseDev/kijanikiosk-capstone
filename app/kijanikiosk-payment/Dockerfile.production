@@ -1,0 +1,47 @@
+# ─── Stage 1: Builder ────────────────────────────────────────────────────────
+FROM node:24-alpine AS builder
+WORKDIR /app
+
+# TODO: copy package manifests (not source code)
+COPY package.json package-lock.json ./
+
+# TODO: install ALL dependencies (including devDependencies for compilation)
+RUN npm ci
+
+# TODO: copy the remaining source files
+COPY . .
+
+# TODO: compile TypeScript to JavaScript (npm run build)
+RUN npm run build
+
+# ─── Stage 2: Production ─────────────────────────────────────────────────────
+FROM node:24-alpine AS production
+WORKDIR /app
+
+# TODO: create non-root group and user (kijani)
+RUN addgroup -S kijani && adduser -S kijani -G kijani
+
+# TODO: copy package manifests from builder
+COPY --from=builder /app/package.json /app/package-lock.json ./
+
+# TODO: install ONLY production dependencies
+RUN npm ci --only=production
+
+# TODO: copy compiled output from builder stage (not source files)
+COPY --from=builder /app/dist ./dist
+
+# TODO: set correct ownership on /app for the kijani user
+RUN chown -R kijani:kijani /app
+
+# TODO: switch to the non-root user
+USER kijani
+
+# TODO: add HEALTHCHECK using wget (not curl)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+# TODO: expose the correct port
+EXPOSE 3000
+
+# TODO: set the CMD using exec form pointing directly to node
+CMD [ "node", "dist/src/server.js" ]
