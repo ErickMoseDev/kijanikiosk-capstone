@@ -21,6 +21,7 @@ spec:
             containers:
                 - name: receipt-handler
                   image: erickmosedev/receipt-handler:latest
+                  imagePullPolicy: IfNotPresent
                   ports:
                       - containerPort: 3000
                   readinessProbe:

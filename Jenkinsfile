@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // KijaniKiosk Capstone Pipeline
 //
-// Stages:  Setup → Lint → Test → Build → Build & Push Image → Security Audit
+// Stages:  Setup → Lint → Test → Build → Build & Push Images → Security Audit
 //          → Deploy — Staging → Smoke Test → Archive & Publish
 //          → Approval Gate → Deploy — Production
 //
@@ -20,8 +20,9 @@ pipeline {
         APP_DIR      = 'app/kijanikiosk-payment'
         APP_NAME     = 'kk-payments'
         BUILD_DIR    = 'dist'
-        DOCKER_REPO  = 'erickmosedev/kk-payments'
-        STAGING_NS   = 'kijani-staging'
+        DOCKER_REPO           = 'erickmosedev/kk-payments'
+        RECEIPT_HANDLER_REPO  = 'erickmosedev/receipt-handler'
+        STAGING_NS            = 'kijani-staging'
         PROD_NS      = 'default'
         STAGING_PORT = '30001'
         NEXUS_URL    = 'http://nexus:8081'
@@ -97,31 +98,37 @@ pipeline {
             }
         }
 
-        // ── 5. Build & push Docker image ────────────────────────────────────
+        // ── 5. Build & push Docker images ────────────────────────────────────
+        //    Builds kk-payments and receipt-handler; pushes both to Docker Hub.
         //    Requires Docker CLI on the Jenkins host agent.
-        stage('Build & Push Image') {
+        stage('Build & Push Images') {
             agent any
             steps {
-                dir(APP_DIR) {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh '''
-                        set -e
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        trap "docker logout" EXIT
-                        docker build \
-                          --label "git.sha=${GIT_SHORT}" \
-                          --label "build.number=${BUILD_NUMBER}" \
-                          -t "${FULL_IMAGE}" \
-                          -f Dockerfile.production .
-                        docker push "${FULL_IMAGE}"
-                        docker tag  "${FULL_IMAGE}" "${DOCKER_REPO}:latest"
-                        docker push "${DOCKER_REPO}:latest"
-                        '''
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                    set -e
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+                    echo "=== kk-payments ==="
+                    docker build \
+                      --label "git.sha=${GIT_SHORT}" \
+                      --label "build.number=${BUILD_NUMBER}" \
+                      -t "${FULL_IMAGE}" \
+                      -f ${APP_DIR}/Dockerfile.production ${APP_DIR}
+                    docker push "${FULL_IMAGE}"
+                    docker tag  "${FULL_IMAGE}" "${DOCKER_REPO}:latest"
+                    docker push "${DOCKER_REPO}:latest"
+
+                    echo "=== receipt-handler ==="
+                    docker build -t "${RECEIPT_HANDLER_REPO}:latest" serverless/receipt-handler/
+                    docker push "${RECEIPT_HANDLER_REPO}:latest"
+
+                    docker logout
+                    '''
                 }
             }
         }
@@ -161,8 +168,15 @@ npm audit --audit-level=high 2>&1 | tee audit-report.txt
                     kubectl set image deployment/${APP_NAME} \
                       ${APP_NAME}=${FULL_IMAGE} -n ${STAGING_NS}
 
-                    echo "=== Waiting for rollout ==="
+                    echo "=== Waiting for kk-payments rollout ==="
                     kubectl rollout status deployment/${APP_NAME} \
+                      -n ${STAGING_NS} --timeout=120s
+
+                    echo "=== Deploying receipt-handler to ${STAGING_NS} ==="
+                    kubectl apply -f serverless/receipt-handler/k8s-manifest.yaml
+                    kubectl set image deployment/receipt-handler \
+                      receipt-handler=${RECEIPT_HANDLER_REPO}:latest -n ${STAGING_NS}
+                    kubectl rollout status deployment/receipt-handler \
                       -n ${STAGING_NS} --timeout=120s
                     '''
                 }

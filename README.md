@@ -329,19 +329,19 @@ kubectl get pods -n kijani-staging
 
 ## Pipeline Stages
 
-| #   | Stage                | Agent     | What it does                                                                                                                                                     |
-| --- | -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Setup                | `node:24` | Reads version from `package.json`, appends short Git SHA to form `IMAGE_TAG`.                                                                                    |
-| 2   | Lint                 | `node:24` | `npm ci` + `npm run lint` (ESLint).                                                                                                                              |
-| 3   | Test                 | `node:24` | `npm test` (Jest). Publishes JUnit results.                                                                                                                      |
-| 4   | Build                | `node:24` | `npm run build` to `dist/`. Stashes build output.                                                                                                                |
-| 5   | Build and Push Image | host      | `docker build` with `Dockerfile.production`, pushes `erickmosedev/kk-payments:<IMAGE_TAG>` and `:latest` to Docker Hub.                                          |
-| 6   | Security Audit       | `node:24` | `npm audit --audit-level=high`. Archives the report.                                                                                                             |
-| 7   | Deploy to Staging    | host      | `kubectl apply` ConfigMap + Service + Deployment, then `kubectl set image` + rollout wait.                                                                       |
-| 8   | Smoke Test           | host      | Hits `GET /health` and `POST /payments` on the staging NodePort. Pipeline stops here if either check fails. No approval prompt is shown if the smoke test fails. |
-| 9   | Archive and Publish  | `node:24` | Archives `dist/` in Jenkins. Publishes the versioned package to Nexus.                                                                                           |
-| 10  | Approval Gate        | none      | A human must approve before production is touched. This step is only reachable after the smoke test passes.                                                      |
-| 11  | Deploy to Production | host      | Same `kubectl apply` + `set image` + rollout wait, targeting the `default` namespace.                                                                            |
+| #   | Stage                 | Agent     | What it does                                                                                                                                                     |
+| --- | --------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Setup                 | `node:24` | Reads version from `package.json`, appends short Git SHA to form `IMAGE_TAG`.                                                                                    |
+| 2   | Lint                  | `node:24` | `npm ci` + `npm run lint` (ESLint).                                                                                                                              |
+| 3   | Test                  | `node:24` | `npm test` (Jest). Publishes JUnit results.                                                                                                                      |
+| 4   | Build                 | `node:24` | `npm run build` to `dist/`. Stashes build output.                                                                                                                |
+| 5   | Build and Push Images | host      | `docker build` + push for both `erickmosedev/kk-payments:<IMAGE_TAG>` and `erickmosedev/receipt-handler:latest` to Docker Hub.                                   |
+| 6   | Security Audit        | `node:24` | `npm audit --audit-level=high`. Archives the report.                                                                                                             |
+| 7   | Deploy to Staging     | host      | `kubectl apply` ConfigMap + Service + Deployment for kk-payments, then `kubectl set image` + rollout wait. Then deploys receipt-handler in the same namespace.   |
+| 8   | Smoke Test            | host      | Hits `GET /health` and `POST /payments` on the staging NodePort. Pipeline stops here if either check fails. No approval prompt is shown if the smoke test fails. |
+| 9   | Archive and Publish   | `node:24` | Archives `dist/` in Jenkins. Publishes the versioned package to Nexus.                                                                                           |
+| 10  | Approval Gate         | none      | A human must approve before production is touched. This step is only reachable after the smoke test passes.                                                      |
+| 11  | Deploy to Production  | host      | Same `kubectl apply` + `set image` + rollout wait, targeting the `default` namespace.                                                                            |
 
 ---
 
@@ -373,20 +373,7 @@ POST | http://localhost:3000/dev/receipts
 node upload-test.js
 ```
 
-**Option B - aws CLI**
-
-```bash
-aws --endpoint-url http://localhost:4569 \
-  s3 mb s3://kk-payments-receipts --region af-south-1
-
-echo '{"orderId":"ORD-001","amount":2500,"currency":"KES"}' > /tmp/receipt-ORD-001.json
-
-aws --endpoint-url http://localhost:4569 \
-  s3 cp /tmp/receipt-ORD-001.json \
-  s3://kk-payments-receipts/receipt-ORD-001.json --region af-south-1
-```
-
-**Option C - direct invoke (bypasses S3 entirely)**
+**Option B - direct invoke (bypasses S3 entirely)**
 
 ```bash
 npx sls invoke local --function processReceiptUpload --data '{
@@ -420,10 +407,20 @@ Two distinct log lines should appear. If only one appears, the handler is not it
 
 ### Deploy to the staging cluster
 
+The Jenkins pipeline (stage 5) builds and pushes the receipt-handler image to Docker Hub, then stage 7 deploys it to `kijani-staging` automatically. No manual steps are needed after the first pipeline run.
+
+If you need to redeploy manually outside the pipeline:
+
 ```bash
 docker build -t erickmosedev/receipt-handler:latest serverless/receipt-handler/
 docker push erickmosedev/receipt-handler:latest
 kubectl apply -f serverless/receipt-handler/k8s-manifest.yaml
+kubectl rollout restart deployment/receipt-handler -n kijani-staging
+```
+
+Check the pod comes up:
+
+```bash
 kubectl get pods -n kijani-staging -l app=receipt-handler
 ```
 
