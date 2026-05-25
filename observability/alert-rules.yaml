@@ -1,0 +1,89 @@
+# observability/alert-rules.yaml
+#
+# Prometheus alerting rules for the kk-payments service.
+# Applies to both default (production) and kijani-staging namespaces.
+#
+# Requires: kube-prometheus-stack (or Prometheus Operator) installed in the cluster.
+# Apply:    kubectl apply -f observability/alert-rules.yaml -n monitoring
+#
+# The `release: kube-prometheus-stack` label must match the Prometheus Operator's
+# ruleSelector to ensure these rules are picked up automatically.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+    name: kk-payments-alerts
+    namespace: monitoring
+    labels:
+        app: kk-payments
+        release: kube-prometheus-stack
+spec:
+    groups:
+        - name: kk-payments.rules
+          interval: 30s
+          rules:
+              # ── Rule 1: Payment 5xx error rate > 1% over 5 minutes ──────────────
+              # SLO source: Week 7 — error-rate SLO threshold
+              - alert: KKPaymentsHighErrorRate
+                expr: |
+                    (
+                      sum(rate(http_requests_total{job="kk-payments", status=~"5.."}[5m]))
+                      /
+                      sum(rate(http_requests_total{job="kk-payments"}[5m]))
+                    ) > 0.01
+                for: 5m
+                labels:
+                    severity: warning
+                    service: kk-payments
+                annotations:
+                    summary: 'kk-payments 5xx error rate above 1%'
+                    description: >
+                        The payment error rate is {{ $value | humanizePercentage }} over the
+                        last 5 minutes. SLO threshold is 1%.
+                        Namespace: {{ $labels.namespace }}
+
+              # ── Rule 2: Pod restart count > 3 in a 10-minute window ─────────────
+              # SLO source: Week 7 — availability / crash-loop SLO threshold
+              - alert: KKPaymentsPodRestartingTooOften
+                expr: |
+                    increase(
+                      kube_pod_container_status_restarts_total{
+                        namespace=~"default|kijani-staging",
+                        pod=~"kk-payments.*"
+                      }[10m]
+                    ) > 3
+                for: 0m
+                labels:
+                    severity: critical
+                    service: kk-payments
+                annotations:
+                    summary: 'kk-payments pod restarting excessively'
+                    description: >
+                        Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has
+                        restarted {{ $value }} times in the last 10 minutes.
+
+              # ── Rule 3: p95 latency on POST /payments > 2000 ms over 5 minutes ──
+              # SLO source: Week 7 — latency SLO threshold
+              - alert: KKPaymentsHighP95Latency
+                expr: |
+                    histogram_quantile(
+                      0.95,
+                      sum(
+                        rate(
+                          http_request_duration_seconds_bucket{
+                            job="kk-payments",
+                            method="POST",
+                            route="/payments"
+                          }[5m]
+                        )
+                      ) by (le)
+                    ) * 1000 > 2000
+                for: 5m
+                labels:
+                    severity: warning
+                    service: kk-payments
+                annotations:
+                    summary: 'kk-payments POST /payments p95 latency above 2 s'
+                    description: >
+                        The p95 response time for POST /payments is {{ $value | humanizeDuration }}
+                        over the last 5 minutes. SLO threshold is 2,000 ms.
