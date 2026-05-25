@@ -1,0 +1,68 @@
+---
+# iac/ansible/staging-config.yml
+#
+# Applies environment-specific configuration to the kijani-staging namespace.
+# Run after `terraform apply` has created the namespace.
+#
+# Prerequisites:
+#   pip install kubernetes ansible-core
+#   ansible-galaxy collection install kubernetes.core
+#
+# Usage:
+#   ansible-playbook iac/ansible/staging-config.yml
+
+- name: Configure kijani-staging namespace
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+      namespace: kijani-staging
+      k8s_dir: '{{ playbook_dir }}/../../k8s'
+
+  tasks:
+      - name: Apply staging ConfigMap
+        kubernetes.core.k8s:
+            state: present
+            src: '{{ k8s_dir }}/kk-payments-configmap-staging.yaml'
+
+      - name: Apply staging Service
+        kubernetes.core.k8s:
+            state: present
+            src: '{{ k8s_dir }}/kk-payments-service-staging.yaml'
+
+      - name: Apply namespace ResourceQuota
+        kubernetes.core.k8s:
+            state: present
+            definition:
+                apiVersion: v1
+                kind: ResourceQuota
+                metadata:
+                    name: staging-resource-quota
+                    namespace: '{{ namespace }}'
+                spec:
+                    hard:
+                        requests.cpu: '500m'
+                        requests.memory: '512Mi'
+                        limits.cpu: '1'
+                        limits.memory: '1Gi'
+                        pods: '10'
+
+      - name: Apply namespace LimitRange
+        kubernetes.core.k8s:
+            state: present
+            definition:
+                apiVersion: v1
+                kind: LimitRange
+                metadata:
+                    name: staging-limit-range
+                    namespace: '{{ namespace }}'
+                spec:
+                    limits:
+                        - type: Container
+                          default:
+                              cpu: '200m'
+                              memory: '256Mi'
+                          defaultRequest:
+                              cpu: '100m'
+                              memory: '128Mi'
