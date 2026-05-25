@@ -1,0 +1,54 @@
+# Deploys the receipt-handler function into kijani-staging.
+# Apply: kubectl apply -f serverless/receipt-handler/k8s-manifest.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: receipt-handler
+    namespace: kijani-staging
+    labels:
+        app: receipt-handler
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: receipt-handler
+    template:
+        metadata:
+            labels:
+                app: receipt-handler
+        spec:
+            containers:
+                - name: receipt-handler
+                  image: erickmosedev/receipt-handler:latest
+                  ports:
+                      - containerPort: 3000
+                  readinessProbe:
+                      httpGet:
+                          path: /health
+                          port: 3000
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                  resources:
+                      requests:
+                          cpu: '50m'
+                          memory: '64Mi'
+                      limits:
+                          cpu: '100m'
+                          memory: '128Mi'
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: receipt-handler
+    namespace: kijani-staging
+    labels:
+        app: receipt-handler
+spec:
+    selector:
+        app: receipt-handler
+    ports:
+        - name: http
+          protocol: TCP
+          port: 3000
+          targetPort: 3000
